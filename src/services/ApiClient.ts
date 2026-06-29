@@ -21,6 +21,14 @@ export class ApiClient {
     });
   }
 
+  public async sendTelemetry(eventName: string, payload: Record<string, any>): Promise<void> {
+    try {
+      await this.client.post(`/telemetry`, { event: eventName, payload });
+    } catch (err) {
+      // swallow telemetry errors
+    }
+  }
+
   public async registerOrMapRepo(
     remoteUrl: string,
   ): Promise<MapRepoResponse | null> {
@@ -46,6 +54,58 @@ export class ApiClient {
       return response.data;
     } catch (err) {
       throw err;
+    }
+  }
+
+  // --- AI suggestions API helpers (client-side) ---
+  public async getSuggestions(repoId?: string): Promise<any[] | null> {
+    try {
+      const qs = repoId ? `?repoId=${encodeURIComponent(repoId)}` : "";
+      const response = await this.client.get(`/ai/suggestions${qs}`);
+      return response.data?.suggestions || response.data || [];
+    } catch (err) {
+      console.warn("Failed to fetch suggestions", err);
+      return null;
+    }
+  }
+
+  public async getSuggestion(id: string): Promise<any | null> {
+    try {
+      const response = await this.client.get(`/ai/suggestions/${encodeURIComponent(id)}`);
+      return response.data;
+    } catch (err) {
+      console.warn("Failed to fetch suggestion", err);
+      return null;
+    }
+  }
+
+  public async getSuggestionPatch(id: string): Promise<any | null> {
+    try {
+      const response = await this.client.get(`/ai/suggestions/${encodeURIComponent(id)}/patch`);
+      return response.data;
+    } catch (err) {
+      console.warn("Failed to fetch suggestion patch", err);
+      return null;
+    }
+  }
+
+  public async applySuggestion(id: string): Promise<any | null> {
+    try {
+      const response = await this.client.post(`/ai/suggestions/${encodeURIComponent(id)}/apply`);
+      return response.data;
+    } catch (err) {
+      console.warn("Failed to apply suggestion", err);
+      return null;
+    }
+  }
+
+  public async revertSuggestion(id: string): Promise<any | null> {
+    try {
+      const response = await this.client.post(`/ai/suggestions/${encodeURIComponent(id)}/revert`);
+      return response.data;
+    } catch (err) {
+      console.warn("Failed to revert suggestion", err);
+      return null;
     }
   }
 }
