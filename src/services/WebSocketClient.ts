@@ -7,11 +7,9 @@ export class WebSocketClient {
   private isIntentionallyClosed = false;
   private retryCount = 0;
   private readonly MAX_RETRIES = 5;
-  private readonly BASE_DELAY = 2000; // Start at 2 seconds
+  private readonly BASE_DELAY = 2000;
 
-  constructor(
-    private readonly baseUrl: string = "wss://api.codepilot.live/ws",
-  ) {}
+  constructor(private readonly baseUrl: string = "ws://localhost:5000") {}
 
   public connect(
     token: string,
@@ -43,9 +41,13 @@ export class WebSocketClient {
       }
     });
 
-    this.socket.on("error", (err) =>
-      console.error("CodePilot connection dropped:", err),
-    );
+    this.socket.on("error", (err) => {
+      console.error("CodePilot connection dropped:", err);
+
+      vscode.window.showErrorMessage(
+        `WebSocket Connection Failed: ${err.message}`,
+      );
+    });
   }
 
   private attemptReconnection(

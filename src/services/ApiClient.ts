@@ -8,7 +8,7 @@ export class ApiClient {
 
   constructor(private context: vscode.ExtensionContext) {
     this.client = axios.create({
-      baseURL: "https://api.codepilot.live/v1",
+      baseURL: "http://localhost:5000/api",
       timeout: 12000,
     });
 
@@ -21,7 +21,10 @@ export class ApiClient {
     });
   }
 
-  public async sendTelemetry(eventName: string, payload: Record<string, any>): Promise<void> {
+  public async sendTelemetry(
+    eventName: string,
+    payload: Record<string, any>,
+  ): Promise<void> {
     try {
       await this.client.post(`/telemetry`, { event: eventName, payload });
     } catch (err) {
@@ -71,7 +74,9 @@ export class ApiClient {
 
   public async getSuggestion(id: string): Promise<any | null> {
     try {
-      const response = await this.client.get(`/ai/suggestions/${encodeURIComponent(id)}`);
+      const response = await this.client.get(
+        `/ai/suggestions/${encodeURIComponent(id)}`,
+      );
       return response.data;
     } catch (err) {
       console.warn("Failed to fetch suggestion", err);
@@ -81,7 +86,9 @@ export class ApiClient {
 
   public async getSuggestionPatch(id: string): Promise<any | null> {
     try {
-      const response = await this.client.get(`/ai/suggestions/${encodeURIComponent(id)}/patch`);
+      const response = await this.client.get(
+        `/ai/suggestions/${encodeURIComponent(id)}/patch`,
+      );
       return response.data;
     } catch (err) {
       console.warn("Failed to fetch suggestion patch", err);
@@ -91,7 +98,9 @@ export class ApiClient {
 
   public async applySuggestion(id: string): Promise<any | null> {
     try {
-      const response = await this.client.post(`/ai/suggestions/${encodeURIComponent(id)}/apply`);
+      const response = await this.client.post(
+        `/ai/suggestions/${encodeURIComponent(id)}/apply`,
+      );
       return response.data;
     } catch (err) {
       console.warn("Failed to apply suggestion", err);
@@ -101,7 +110,9 @@ export class ApiClient {
 
   public async revertSuggestion(id: string): Promise<any | null> {
     try {
-      const response = await this.client.post(`/ai/suggestions/${encodeURIComponent(id)}/revert`);
+      const response = await this.client.post(
+        `/ai/suggestions/${encodeURIComponent(id)}/revert`,
+      );
       return response.data;
     } catch (err) {
       console.warn("Failed to revert suggestion", err);

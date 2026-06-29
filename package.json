@@ -1,13 +1,48 @@
 {
   "name": "codepilot-vscode-extension",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "./dist/extension.js",
   "engines": {
     "vscode": "^1.90.0"
   },
+  "activationEvents": [
+    "onCommand:codepilot.triggerLocalScan",
+    "onCommand:codepilot.applyPatch",
+    "onCommand:codepilot.showSuggestions",
+    "onCommand:codepilot.previewSuggestion",
+    "onCommand:codepilot.applySuggestion",
+    "onCommand:codepilot.validatePatch"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "codepilot.triggerLocalScan",
+        "title": "CodePilot: Trigger Local Scan"
+      },
+      {
+        "command": "codepilot.applyPatch",
+        "title": "CodePilot: Apply Patch"
+      },
+      {
+        "command": "codepilot.showSuggestions",
+        "title": "CodePilot: Show Suggestions"
+      },
+      {
+        "command": "codepilot.previewSuggestion",
+        "title": "CodePilot: Preview Suggestion"
+      },
+      {
+        "command": "codepilot.applySuggestion",
+        "title": "CodePilot: Apply Suggestion"
+      },
+      {
+        "command": "codepilot.validatePatch",
+        "title": "CodePilot: Validate Patch"
+      }
+    ]
+  },
   "dependencies": {
     "axios": "^1.18.0",
-    "vscode": "^1.1.37",
     "ws": "^8.21.0"
   },
   "devDependencies": {
@@ -16,6 +51,8 @@
     "typescript": "^6.0.3"
   },
   "scripts": {
+    "compile": "tsc -b",
+    "watch": "tsc -b -w",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
