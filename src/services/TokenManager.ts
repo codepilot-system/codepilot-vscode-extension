@@ -1,24 +1,38 @@
 import * as vscode from "vscode";
 
 export class TokenManager {
-  private static readonly AUTH_TOKEN_KEY = "codepilot_jwt_token";
+  private static readonly AUTH_ACCESS_TOKEN_KEY = "codepilot_access_token";
+  private static readonly AUTH_REFRESH_TOKEN_KEY = "codepilot_refresh_token";
 
-  public static async storeToken(
+  public static async storeTokens(
     context: vscode.ExtensionContext,
-    token: string,
+    accessToken: string,
+    refreshToken: string,
   ): Promise<void> {
-    await context.secrets.store(TokenManager.AUTH_TOKEN_KEY, token);
+    await Promise.all([
+      context.secrets.store(TokenManager.AUTH_ACCESS_TOKEN_KEY, accessToken),
+      context.secrets.store(TokenManager.AUTH_REFRESH_TOKEN_KEY, refreshToken),
+    ]);
   }
 
-  public static async getToken(
+  public static async getAccessToken(
     context: vscode.ExtensionContext,
   ): Promise<string | undefined> {
-    return await context.secrets.get(TokenManager.AUTH_TOKEN_KEY);
+    return await context.secrets.get(TokenManager.AUTH_ACCESS_TOKEN_KEY);
   }
 
-  public static async deleteToken(
+  public static async getRefreshToken(
+    context: vscode.ExtensionContext,
+  ): Promise<string | undefined> {
+    return await context.secrets.get(TokenManager.AUTH_REFRESH_TOKEN_KEY);
+  }
+
+  public static async deleteTokens(
     context: vscode.ExtensionContext,
   ): Promise<void> {
-    await context.secrets.delete(TokenManager.AUTH_TOKEN_KEY);
+    await Promise.all([
+      context.secrets.delete(TokenManager.AUTH_ACCESS_TOKEN_KEY),
+      context.secrets.delete(TokenManager.AUTH_REFRESH_TOKEN_KEY),
+    ]);
   }
 }

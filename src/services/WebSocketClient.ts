@@ -11,19 +11,29 @@ export class WebSocketClient {
 
   constructor(private readonly baseUrl: string = "ws://localhost:5000") {}
 
-  public connect(
+public connect(
     token: string,
     repoId: string,
     messageCallback: (payload: WebSocketMessage) => void,
   ): void {
     this.isIntentionallyClosed = false;
-    this.socket = new WebSocket(
-      `${this.baseUrl}?token=${token}&repoId=${repoId}`,
-    );
+
+    // 1️⃣ التوكن الصافي بدون Bearer للـ URL Query String
+    const cleanToken = token.startsWith("Bearer ") ? token.split(" ")[1] : token;
+    const connectionUrl = `${this.baseUrl}/ws?repoId=${encodeURIComponent(repoId)}&token=${encodeURIComponent(cleanToken)}`;
+    
+    console.log(`[WebSocket] Dispatching connection to: ${connectionUrl}`);
+
+    this.socket = new WebSocket(connectionUrl, {
+      headers: {
+        // 2️⃣ الـ Header يجب ويشترط أن يحتوي على Bearer كاملة وإلا سيرفضها الباكيند!
+        Authorization: `Bearer ${cleanToken}`
+      }
+    });
 
     this.socket.on("open", () => {
       console.log("CodePilot Link established.");
-      this.retryCount = 0; // Reset backoff counter on success
+      this.retryCount = 0;
     });
 
     this.socket.on("message", (buffer) => {
@@ -35,7 +45,8 @@ export class WebSocketClient {
       }
     });
 
-    this.socket.on("close", () => {
+    this.socket.on("close", (code, reason) => {
+      console.warn(`CodePilot Link Closed. Code: ${code}, Reason: ${reason.toString()}`);
       if (!this.isIntentionallyClosed) {
         this.attemptReconnection(token, repoId, messageCallback);
       }
@@ -43,13 +54,8 @@ export class WebSocketClient {
 
     this.socket.on("error", (err) => {
       console.error("CodePilot connection dropped:", err);
-
-      vscode.window.showErrorMessage(
-        `WebSocket Connection Failed: ${err.message}`,
-      );
     });
   }
-
   private attemptReconnection(
     token: string,
     repoId: string,

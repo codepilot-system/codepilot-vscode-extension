@@ -110,7 +110,7 @@ export async function activate(context: vscode.ExtensionContext) {
       console.log(
         `Repository context synced cleanly via Git. [Target ID: ${repoId}]`,
       );
-      const activeToken = await TokenManager.getToken(context);
+      const activeToken = await TokenManager.getAccessToken(context);
       if (activeToken) {
         wsClient.connect(activeToken, repoId, (message) => {
           if (
