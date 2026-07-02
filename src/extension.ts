@@ -193,6 +193,15 @@ export async function activate(context: vscode.ExtensionContext) {
       const repoId =
         context.workspaceState.get<string>("codepilot_cached_repo_id") ||
         "mock-local-repo-id";
+
+      const token = await apiClient.getValidAccessToken();
+      if (!token) {
+        vscode.window.showErrorMessage(
+          "Not authenticated to CodePilot. Please log in first.",
+        );
+        return;
+      }
+
       const suggestions = await apiClient.getSuggestions(repoId);
       if (!suggestions) {
         vscode.window.showErrorMessage(
@@ -286,12 +295,97 @@ export async function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  const triggerLocalScanCmd = vscode.commands.registerCommand(
+    "codepilot.triggerLocalScan",
+    async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage("No active text editor found.");
+        return;
+      }
+
+      const document = editor.document;
+      const content = document.getText();
+      const relativePath = vscode.workspace.asRelativePath(document.uri);
+
+      const selection = editor.selection;
+      let selectedLines: Array<{ start: number; end: number }> | undefined;
+      if (selection && !selection.isEmpty) {
+        selectedLines = [
+          {
+            start: selection.start.line + 1,
+            end: selection.end.line + 1,
+          },
+        ];
+      }
+
+      const repoId = context.workspaceState.get<string>("codepilot_cached_repo_id");
+
+      const token = await apiClient.getValidAccessToken();
+      if (!token) {
+        vscode.window.showErrorMessage("Not authenticated to CodePilot. Please log in first.");
+        return;
+      }
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "CodePilot: Running local analysis...",
+          cancellable: false,
+        },
+        async () => {
+          try {
+            const files = [
+              {
+                path: relativePath,
+                content: content,
+                selectedLines: selectedLines,
+              },
+            ];
+
+            const result = await apiClient.sendLocalScanPayload(repoId, files);
+
+            if (result && result.issues) {
+              const backendIssues = result.issues.map((issue: any, index: number) => ({
+                id: `local_${Date.now()}_${index}`,
+                type: issue.category || "static-analysis",
+                description: issue.summary || issue.explanation || "Analysis finding",
+                severity: (issue.severity === "HIGH" || issue.severity === "CRITICAL") ? "error" : "warning",
+                startLine: issue.lineNumber || 1,
+                endLine: issue.lineNumber || 1,
+                filePath: issue.filePath || relativePath,
+                suggestedFix: issue.suggestions?.[0],
+              }));
+
+              diagnosticService.applyIssuesToDocument(document, backendIssues);
+
+              if (backendIssues.length > 0) {
+                vscode.window.showInformationMessage(
+                  `CodePilot local analysis completed: ${backendIssues.length} issue(s) detected.`,
+                );
+              } else {
+                vscode.window.showInformationMessage("CodePilot local analysis completed: No issues found.");
+              }
+            } else {
+              vscode.window.showWarningMessage("CodePilot: Local scan returned no results.");
+            }
+          } catch (error: any) {
+            vscode.window.showErrorMessage(
+              `CodePilot local analysis failed: ${error.message || error}`,
+            );
+          }
+        },
+      );
+    },
+  );
+
   context.subscriptions.push(
     applyPatchCmd,
     validatePatchCmd,
     showSuggestionsCmd,
     previewSuggestionCmd,
     applySuggestionCmd,
+    triggerLocalScanCmd,
   );
 }
 

@@ -13,6 +13,24 @@ export class ApiClient {
       timeout: 12000,
       withCredentials: true, // Required for cookie-based CSRF support
     });
+    this.client.interceptors.request.use(
+      async (config) => {
+        if (config.headers?.["x-skip-auth"] === "true") {
+          delete config.headers["x-skip-auth"];
+          return config;
+        }
+
+        const token = await TokenManager.getAccessToken(this.context);
+        if (token) {
+          if (!config.headers) {
+            config.headers = {} as any;
+          }
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
+      },
+      (error) => Promise.reject(error),
+    );
 
     // Inside ApiClient.ts constructor
     this.client.interceptors.response.use(
@@ -33,7 +51,7 @@ export class ApiClient {
     );
   }
 
-  private async getValidAccessToken(): Promise<string | undefined> {
+  public async getValidAccessToken(): Promise<string | undefined> {
     let token = await TokenManager.getAccessToken(this.context);
     if (token) return token;
 
@@ -134,23 +152,44 @@ export class ApiClient {
     }
   }
 
-  public async registerOrMapRepo(
-    remoteUrl: string,
-  ): Promise<MapRepoResponse | null> {
-    try {
-      const response = await this.client.post<any>("/repos/map", {
-        url: remoteUrl,
-      });
-      // ✅ تعديل: قراءة الـ mapping بذكاء حسب كود الـ controller
-      return response.data?.data || response.data;
-    } catch (err) {
-      vscode.window.showErrorMessage(
-        "CodePilot Gateway communication breakdown.",
-      );
-      return null;
-    }
-  }
+public async registerOrMapRepo(
+  remoteUrl: string,
+): Promise<MapRepoResponse | null> {
+  const parsed = this.parseGitRemoteUrl(remoteUrl);
+  if (!parsed) return null;
 
+  try {
+    const response = await this.client.post<any>("/projects", {
+      owner: parsed.owner,
+      repoName: parsed.repoName,
+    });
+    const project = response.data?.data || response.data;
+    if (!project?.id) return null;
+    return {
+      repositoryId: String(project.id),
+      name: project.name,
+    };
+  } catch (err) {
+    vscode.window.showErrorMessage("CodePilot Gateway communication breakdown.");
+    return null;
+  }
+}
+
+private parseGitRemoteUrl(
+  remoteUrl: string,
+): { owner: string; repoName: string } | null {
+  // Handles:
+  //  https://github.com/owner/repo.git
+  //  https://github.com/owner/repo
+  //  git@github.com:owner/repo.git
+  const httpsMatch = remoteUrl.match(
+    /github\.com[/:]([^/]+)\/([^/.]+?)(\.git)?$/,
+  );
+  if (httpsMatch) {
+    return { owner: httpsMatch[1], repoName: httpsMatch[2] };
+  }
+  return null;
+}
   public async sendScanPayload(
     projectId: string,
     payload: ScanPayload,
@@ -160,6 +199,27 @@ export class ApiClient {
         `/repos/${projectId}/scan`,
         payload,
       );
+      return response.data?.data || response.data;
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  public async sendLocalScanPayload(
+    projectId: string | undefined,
+    files: Array<{
+      path: string;
+      content: string;
+      selectedLines?: Array<{ start: number; end: number }>;
+    }>,
+    preferredModel?: string,
+  ): Promise<any> {
+    try {
+      const response = await this.client.post("/scans/local-analysis", {
+        projectId,
+        files,
+        preferredModel,
+      });
       return response.data?.data || response.data;
     } catch (err) {
       throw err;
