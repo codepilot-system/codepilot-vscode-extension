@@ -5,38 +5,26 @@ import { MapRepoResponse, ScanPayload } from "../types/ApiTypes";
 
 export class ApiClient {
   private client: AxiosInstance;
+  private csrfToken: string | null = null;
 
   constructor(private context: vscode.ExtensionContext) {
     this.client = axios.create({
       baseURL: "http://localhost:5000/api",
       timeout: 12000,
+      withCredentials: true, // Required for cookie-based CSRF support
     });
 
-    this.client.interceptors.request.use(async (config) => {
-      if (config.headers && config.headers["x-skip-auth"]) {
-        delete config.headers["x-skip-auth"];
-        return config;
-      }
-
-      const token = await this.getValidAccessToken();
-      if (token && config.headers) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      return config;
-    });
-
+    // Inside ApiClient.ts constructor
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
-        const originalRequest = error.config as any;
-        if (
-          error.response?.status === 401 &&
-          originalRequest &&
-          !originalRequest.__retry
-        ) {
-          originalRequest.__retry = true;
-          const refreshed = await this.refreshAccessToken();
-          if (refreshed) {
+        const originalRequest = error.config;
+        if (error.response?.status === 401 && !originalRequest._retry) {
+          originalRequest._retry = true;
+          const success = await this.refreshAccessToken();
+          if (success) {
+            const newToken = await TokenManager.getAccessToken(this.context);
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
             return this.client(originalRequest);
           }
         }
@@ -59,7 +47,7 @@ export class ApiClient {
     return token;
   }
 
- private async getGithubSessionToken(): Promise<string | undefined> {
+  private async getGithubSessionToken(): Promise<string | undefined> {
     try {
       const session = await vscode.authentication.getSession(
         "github",
@@ -73,9 +61,7 @@ export class ApiClient {
     }
   }
 
-  private async loginWithGithubToken(
-    githubToken: string,
-  ): Promise<boolean> {
+  private async loginWithGithubToken(githubToken: string): Promise<boolean> {
     try {
       const response = await this.client.post(
         "/auth/extension/login",
@@ -83,11 +69,11 @@ export class ApiClient {
         { githubAccessToken: githubToken },
         { headers: { "x-skip-auth": "true" } },
       );
-      
+
       // ✅ تعديل: قراءة الكائن من داخل wrapper الـ data الخاص بـ Express
       const responseBody = response.data;
-      const data = responseBody?.data; 
-      
+      const data = responseBody?.data;
+
       if (data?.accessToken && data?.refreshToken) {
         await TokenManager.storeTokens(
           this.context,
@@ -115,7 +101,7 @@ export class ApiClient {
         { refreshToken },
         { headers: { "x-skip-auth": "true" } },
       );
-      
+
       // ✅ تعديل: قراءة الكائن من داخل wrapper الـ data للـ Refresh أيضاً
       const responseBody = response.data;
       const data = responseBody?.data;
@@ -166,29 +152,38 @@ export class ApiClient {
   }
 
   public async sendScanPayload(
-    repoId: string,
+    projectId: string,
     payload: ScanPayload,
   ): Promise<any> {
     try {
-      const response = await this.client.post(`/repos/${repoId}/scan`, payload);
+      const response = await this.client.post(
+        `/repos/${projectId}/scan`,
+        payload,
+      );
       return response.data?.data || response.data;
     } catch (err) {
       throw err;
     }
   }
 
-  public async getSuggestions(repoId?: string): Promise<any[] | null> {
+  private async refreshCsrfToken() {
     try {
-      // ⬇️ التعديل هنا: غيرنا اسم المفتاح في الـ URL ليصبح projectId ⬇️
-      const qs = repoId ? `?projectId=${encodeURIComponent(repoId)}` : "";
+      const response = await this.client.get("/auth/csrf-token", {
+        headers: { "x-skip-auth": "true" },
+      });
+      this.csrfToken = response.data.csrfToken;
+    } catch (e) {
+      console.warn("Failed to acquire CSRF token");
+    }
+  }
+  public async getSuggestions(projectId?: string): Promise<any[] | null> {
+    try {
+      const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
       const response = await this.client.get(`/suggestions${qs}`);
-      
-      console.log("[ApiClient] Suggestions response received:", response.data);
-
-      const resData = response.data?.data || response.data;
-      return resData?.suggestions || resData || [];
-    } catch (err) {
-      console.warn("Failed to fetch suggestions", err);
+      return response.data?.data || response.data;
+    } catch (err: any) {
+      // Log the full response to see if it's 403 (CSRF) or 401 (Auth)
+      console.error("DEBUG API ERROR:", err.response?.data || err.message);
       return null;
     }
   }
@@ -206,14 +201,16 @@ export class ApiClient {
   }
 
   public async getSuggestionPatch(id: string): Promise<any | null> {
-  try {
-    const response = await this.client.get(`/suggestions/${encodeURIComponent(id)}`);
-    return response.data?.data || response.data;
-  } catch (err) {
-    console.warn("Failed to fetch suggestion patch", err);
-    return null;
+    try {
+      const response = await this.client.get(
+        `/suggestions/${encodeURIComponent(id)}`,
+      );
+      return response.data?.data || response.data;
+    } catch (err) {
+      console.warn("Failed to fetch suggestion patch", err);
+      return null;
+    }
   }
-}
 
   public async applySuggestion(id: string): Promise<any | null> {
     try {

@@ -12,86 +12,20 @@ import { WorkspaceFileWriter } from "./services/WorkspaceFileWriter";
 import { WorkspacePatchExecutor } from "./services/WorkspacePatchExecutor";
 import { TelemetryService } from "./services/TelemetryService";
 import { AstContextExtractor } from "./ast/AstContextExtractor";
-
+process.removeAllListeners("warning");
 export async function activate(context: vscode.ExtensionContext) {
   console.log("CodePilot Network Infrastructure Tier initializing...");
 
-  // Instantiate architectural dependencies
   const apiClient = new ApiClient(context);
   const wsClient = new WebSocketClient();
   const diagnosticService = new DiagnosticService();
 
-  // Assign globally to registry
   ServiceRegistry.apiClient = apiClient;
   ServiceRegistry.diagnosticService = diagnosticService;
 
   context.subscriptions.push(diagnosticService.getCollection());
 
-  // =========================================================================
-  // 🛠️ LOCAL DEV BYPASS: Forces connection if local DB / Git context is empty
-  // =========================================================================
-  setTimeout(async () => {
-    const devToken = "mock-local-token";
-    const devRepoId = "mock-local-repo-id";
-
-    console.log(
-      `🔧 Dev Bypass: Forcing connection to local backend [Target ID: ${devRepoId}]`,
-    );
-
-    wsClient.connect(devToken, devRepoId, (message) => {
-      console.log("📥 Received WebSocket message from local backend:", message);
-      const activeEditor = vscode.window.activeTextEditor;
-      if (activeEditor && message.data?.issues) {
-        diagnosticService.applyIssuesToDocument(
-          activeEditor.document,
-          message.data.issues,
-        );
-        vscode.window.showInformationMessage(
-          "CodePilot: Real-time suggestions updated!",
-        );
-      }
-    });
-  }, 1000);
-  // =========================================================================
-
-  // Scan Command
-  const scanCommand = vscode.commands.registerCommand(
-    "codepilot.triggerLocalScan",
-    async () => {
-      const activeEditor = vscode.window.activeTextEditor;
-      if (!activeEditor) return;
-
-      // Fallback to dev repo ID if cached mapping hasn't initialized locally
-      const repoId =
-        context.workspaceState.get<string>("codepilot_cached_repo_id") ||
-        "mock-local-repo-id";
-
-      const fileContent = activeEditor.document.getText();
-      const langId = activeEditor.document.languageId;
-
-      const astAnalysis = AstContextExtractor.extractContext(
-        fileContent,
-        langId,
-      );
-
-      const contextPayload = {
-        fileUri: activeEditor.document.uri.toString(),
-        languageId: langId,
-        content: fileContent,
-        fingerprint: astAnalysis.globalFingerprint,
-        astNodes: astAnalysis.nodes,
-      };
-
-      await apiClient.sendScanPayload(repoId, contextPayload);
-      vscode.window.showInformationMessage(
-        "CodePilot repository analysis context uploaded.",
-      );
-    },
-  );
-
-  context.subscriptions.push(scanCommand);
-
-  // Production Bootstrap Sequence (Kept intact for deployment)
+  // --- Production Bootstrap Sequence ---
   const remoteUrl = RepositoryMapper.getRemoteUrlForActiveFile();
   if (remoteUrl) {
     let repoId = context.workspaceState.get<string>("codepilot_cached_repo_id");
@@ -107,12 +41,12 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     if (repoId) {
-      console.log(
-        `Repository context synced cleanly via Git. [Target ID: ${repoId}]`,
-      );
       const activeToken = await TokenManager.getAccessToken(context);
+
+      await apiClient["refreshCsrfToken"]();
+      const csrfToken = apiClient["csrfToken"];
       if (activeToken) {
-        wsClient.connect(activeToken, repoId, (message) => {
+        wsClient.connect(activeToken, repoId, csrfToken, (message) => {
           if (
             message.event === "issue_detected" ||
             message.event === "scan_complete"

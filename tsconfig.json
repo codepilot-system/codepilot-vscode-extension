@@ -1,14 +1,11 @@
 {
   "compilerOptions": {
-    "module": "NodeNext",
+    "module": "commonjs",
     "target": "ES2022",
-    "outDir": "dist",
-    "lib": ["ES2022"],
-    "sourceMap": true,
+    "outDir": "out",
     "rootDir": "src",
-    "strict": true,
-    "esModuleInterop": true,
-    "moduleResolution": "NodeNext"
+    "sourceMap": true,
+    "types": ["vscode", "mocha", "node"]
   },
   "include": ["src/**/*"]
 }
