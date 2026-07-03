@@ -34,18 +34,30 @@ export class WorkspacePatchExecutor {
             const workspace = (await import("vscode")).workspace;
             const root = workspace.workspaceFolders?.[0]?.uri;
             if (!root) throw new Error("No workspace root");
-            const target = root.with({ path: root.path + "/" + op.path.replace(/^\/+/, "") });
-            await workspace.fs.delete(target, { recursive: false, useTrash: false });
+            const target = root.with({
+              path: root.path + "/" + op.path.replace(/^\/+/, ""),
+            });
+            await workspace.fs.delete(target, {
+              recursive: false,
+              useTrash: false,
+            });
             details.push({ op, ok: true });
             break;
           default:
             details.push({ op, ok: false, error: "Unknown op" });
         }
 
-        this.telemetry?.sendEvent("patch.op.succeeded", { type: op.type, path: op.path });
+        this.telemetry?.sendEvent("patch.op.succeeded", {
+          type: op.type,
+          path: op.path,
+        });
       } catch (e: any) {
         details.push({ op, ok: false, error: e?.message ?? String(e) });
-        this.telemetry?.sendEvent("patch.op.failed", { type: op.type, path: op.path, error: e?.message ?? String(e) });
+        this.telemetry?.sendEvent("patch.op.failed", {
+          type: op.type,
+          path: op.path,
+          error: e?.message ?? String(e),
+        });
       }
     }
 

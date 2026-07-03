@@ -69,7 +69,7 @@ export class ApiClient {
     try {
       const session = await vscode.authentication.getSession(
         "github",
-        ["repo", "read:user", "user:email"], // ✅ اضفنا السكوب ده هنا لحل مشكلة الإيميل
+        ["repo", "read:user", "user:email"],
         { createIfNone: true },
       );
       return session.accessToken;
@@ -83,12 +83,11 @@ export class ApiClient {
     try {
       const response = await this.client.post(
         "/auth/extension/login",
-        // ✅ تعديل: تغيير المفتاح إلى githubAccessToken ليطابق الباكيند تماماً
+
         { githubAccessToken: githubToken },
         { headers: { "x-skip-auth": "true" } },
       );
 
-      // ✅ تعديل: قراءة الكائن من داخل wrapper الـ data الخاص بـ Express
       const responseBody = response.data;
       const data = responseBody?.data;
 
@@ -120,7 +119,6 @@ export class ApiClient {
         { headers: { "x-skip-auth": "true" } },
       );
 
-      // ✅ تعديل: قراءة الكائن من داخل wrapper الـ data للـ Refresh أيضاً
       const responseBody = response.data;
       const data = responseBody?.data;
 
@@ -152,45 +150,46 @@ export class ApiClient {
     }
   }
 
-public async registerOrMapRepo(
-  remoteUrl: string,
-): Promise<MapRepoResponse | null> {
-  const parsed = this.parseGitRemoteUrl(remoteUrl);
-  if (!parsed) {
-    console.warn("Could not parse owner/repo from remote URL:", remoteUrl);
-    return null;
+  public async registerOrMapRepo(
+    remoteUrl: string,
+  ): Promise<MapRepoResponse | null> {
+    const parsed = this.parseGitRemoteUrl(remoteUrl);
+    if (!parsed) {
+      console.warn("Could not parse owner/repo from remote URL:", remoteUrl);
+      return null;
+    }
+
+    try {
+      const response = await this.client.post<any>("/projects", {
+        owner: parsed.owner,
+        repoName: parsed.repoName,
+      });
+      const project = response.data?.data || response.data;
+      if (!project?.id) return null;
+      return {
+        repositoryId: String(project.id),
+        name: project.name,
+      };
+    } catch (err: any) {
+      const message =
+        err.response?.data?.message ||
+        "CodePilot Gateway communication breakdown.";
+      vscode.window.showErrorMessage(`CodePilot: ${message}`);
+      return null;
+    }
   }
 
-  try {
-    const response = await this.client.post<any>("/projects", {
-      owner: parsed.owner,
-      repoName: parsed.repoName,
-    });
-    const project = response.data?.data || response.data;
-    if (!project?.id) return null;
-    return {
-      repositoryId: String(project.id),
-      name: project.name,
-    };
-  } catch (err: any) {
-    const message =
-      err.response?.data?.message || "CodePilot Gateway communication breakdown.";
-    vscode.window.showErrorMessage(`CodePilot: ${message}`);
+  private parseGitRemoteUrl(
+    remoteUrl: string,
+  ): { owner: string; repoName: string } | null {
+    const httpsMatch = remoteUrl.match(
+      /github\.com[/:]([^/]+)\/([^/.]+?)(\.git)?$/,
+    );
+    if (httpsMatch) {
+      return { owner: httpsMatch[1], repoName: httpsMatch[2] };
+    }
     return null;
   }
-}
-
-private parseGitRemoteUrl(
-  remoteUrl: string,
-): { owner: string; repoName: string } | null {
-  const httpsMatch = remoteUrl.match(
-    /github\.com[/:]([^/]+)\/([^/.]+?)(\.git)?$/,
-  );
-  if (httpsMatch) {
-    return { owner: httpsMatch[1], repoName: httpsMatch[2] };
-  }
-  return null;
-}
   public async sendScanPayload(
     projectId: string,
     payload: ScanPayload,
@@ -238,8 +237,8 @@ private parseGitRemoteUrl(
     }
   }
   public async getSuggestions(projectId?: string): Promise<any[] | null> {
-  console.trace("getSuggestions called with projectId:", projectId);
-  try {
+    console.trace("getSuggestions called with projectId:", projectId);
+    try {
       const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
       const response = await this.client.get(`/suggestions${qs}`);
       return response.data?.data || response.data;
@@ -298,15 +297,14 @@ private parseGitRemoteUrl(
     }
   }
   public async dismissSuggestion(id: string): Promise<any | null> {
-  try {
-    const response = await this.client.post(
-      `/suggestions/${encodeURIComponent(id)}/dismiss`,
-    );
-    return response.data?.data || response.data;
-  } catch (err) {
-    console.warn("Failed to dismiss suggestion", err);
-    return null;
+    try {
+      const response = await this.client.post(
+        `/suggestions/${encodeURIComponent(id)}/dismiss`,
+      );
+      return response.data?.data || response.data;
+    } catch (err) {
+      console.warn("Failed to dismiss suggestion", err);
+      return null;
+    }
   }
 }
-  }
-

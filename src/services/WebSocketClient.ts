@@ -19,7 +19,7 @@ export class WebSocketClient {
     });
 
     this.socket.on("connect", () => {
-      console.log("✅ Successfully connected to CodePilot Backend!");
+      console.log("Successfully connected to CodePilot Backend!");
     });
 
     this.socket.on("issue_detected", (data) =>
@@ -30,7 +30,7 @@ export class WebSocketClient {
     );
 
     this.socket.on("connect_error", (err) => {
-      console.error("❌ Connection Error:", err.message);
+      console.error("Connection Error:", err.message);
     });
   }
 
