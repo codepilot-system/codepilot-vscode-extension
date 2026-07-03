@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as crypto from "crypto";
+import { applyPatch } from "diff"; // NEW — needed to compute "after" content for diff preview
 import { ApiClient } from "./services/ApiClient";
 import { WebSocketClient } from "./services/WebSocketClient";
 import { RepositoryMapper } from "./services/RepositoryMapper";
@@ -13,6 +14,29 @@ import { WorkspacePatchExecutor } from "./services/WorkspacePatchExecutor";
 import { TelemetryService } from "./services/TelemetryService";
 import { AstContextExtractor } from "./ast/AstContextExtractor";
 process.removeAllListeners("warning");
+
+// NEW — checks if a diffPatch string is a real unified diff before attempting to render/apply it
+function isUnifiedDiffLike(patch: string | undefined | null): boolean {
+  if (!patch) return false;
+  return patch.includes("@@") && (patch.includes("---") || patch.includes("+++"));
+}
+
+// NEW — serves virtual "patched file" content so vscode.diff can compare it against the real file
+class SuggestionPreviewContentProvider implements vscode.TextDocumentContentProvider {
+  private content = new Map<string, string>();
+  private onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
+  onDidChange = this.onDidChangeEmitter.event;
+
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    return this.content.get(uri.toString()) ?? "";
+  }
+
+  setContent(uri: vscode.Uri, content: string) {
+    this.content.set(uri.toString(), content);
+    this.onDidChangeEmitter.fire(uri);
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   console.log("CodePilot Network Infrastructure Tier initializing...");
 
@@ -24,6 +48,15 @@ export async function activate(context: vscode.ExtensionContext) {
   ServiceRegistry.diagnosticService = diagnosticService;
 
   context.subscriptions.push(diagnosticService.getCollection());
+
+  // NEW — register the virtual content provider for diff previews
+  const suggestionPreviewProvider = new SuggestionPreviewContentProvider();
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(
+      "codepilot-preview",
+      suggestionPreviewProvider,
+    ),
+  );
 
   // --- Production Bootstrap Sequence ---
   const remoteUrl = RepositoryMapper.getRemoteUrlForActiveFile();
@@ -88,7 +121,7 @@ export async function activate(context: vscode.ExtensionContext) {
   ServiceRegistry.telemetryService = telemetryService;
   ServiceRegistry.workspacePatchExecutor = workspacePatchExecutor;
 
-  // Apply Patch Command
+  // Apply Patch Command (unchanged)
   const applyPatchCmd = vscode.commands.registerCommand(
     "codepilot.applyPatch",
     async () => {
@@ -186,7 +219,7 @@ export async function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  // Show Suggestions Command
+  // Show Suggestions Command (unchanged)
   const showSuggestionsCmd = vscode.commands.registerCommand(
     "codepilot.showSuggestions",
     async () => {
@@ -234,6 +267,7 @@ export async function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  // UPDATED — previewSuggestionCmd now renders a real diff view when possible
   const previewSuggestionCmd = vscode.commands.registerCommand(
     "codepilot.previewSuggestion",
     async (suggestionId?: string) => {
@@ -243,17 +277,69 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!id) return;
 
       const suggestion = await apiClient.getSuggestion(id);
-      const patch = await apiClient.getSuggestionPatch(id);
-      if (!suggestion) return;
+      if (!suggestion) {
+        vscode.window.showErrorMessage("Could not fetch suggestion details.");
+        return;
+      }
 
-      const doc = await vscode.workspace.openTextDocument({
-        content: JSON.stringify({ suggestion, patch }, null, 2),
-        language: "json",
-      });
-      await vscode.window.showTextDocument(doc, { preview: true });
+      const filePath = suggestion.filePath ?? suggestion.issue?.filePath;
+
+      // Fallback: no valid diff or no known file path — show raw details instead
+      if (!isUnifiedDiffLike(suggestion.diffPatch) || !filePath) {
+        const doc = await vscode.workspace.openTextDocument({
+          content: JSON.stringify(suggestion, null, 2),
+          language: "json",
+        });
+        await vscode.window.showTextDocument(doc, { preview: true });
+        return;
+      }
+
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        vscode.window.showErrorMessage("No workspace folder open.");
+        return;
+      }
+
+      try {
+        const originalUri = vscode.Uri.joinPath(workspaceFolders[0].uri, filePath);
+        const originalBytes = await vscode.workspace.fs.readFile(originalUri);
+        const originalContent = new TextDecoder().decode(originalBytes);
+
+        const patchedContent = applyPatch(originalContent, suggestion.diffPatch);
+
+        if (patchedContent === false) {
+          vscode.window.showWarningMessage(
+            "Could not apply this suggestion's diff to the current file content — showing details instead.",
+          );
+          const doc = await vscode.workspace.openTextDocument({
+            content: JSON.stringify(suggestion, null, 2),
+            language: "json",
+          });
+          await vscode.window.showTextDocument(doc, { preview: true });
+          return;
+        }
+
+        const previewUri = originalUri.with({
+          scheme: "codepilot-preview",
+          path: originalUri.path + `.suggestion-${id}`,
+        });
+        suggestionPreviewProvider.setContent(previewUri, patchedContent as string);
+
+        await vscode.commands.executeCommand(
+          "vscode.diff",
+          originalUri,
+          previewUri,
+          `${filePath} ↔ Suggested Fix: ${suggestion.summary}`,
+        );
+      } catch (err: any) {
+        vscode.window.showErrorMessage(
+          `Could not open diff preview: ${err.message || err}`,
+        );
+      }
     },
   );
 
+  // UPDATED — checks the correct field name from the backend response
   const applySuggestionCmd = vscode.commands.registerCommand(
     "codepilot.applySuggestion",
     async (suggestionId?: string) => {
@@ -263,20 +349,23 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!id) return;
 
       const serverResp = await apiClient.applySuggestion(id);
-      if (serverResp && serverResp.accepted) {
+      if (serverResp && serverResp.suggestionsApplyId) {
         vscode.window.showInformationMessage(
-          "Suggestion apply requested on server.",
+          `Suggestion apply requested on server (status: ${serverResp.status}).`,
         );
         return;
       }
 
+      // Fallback only reached if the server call genuinely failed
       const patch = await apiClient.getSuggestionPatch(id);
       if (!patch) return;
 
       const ops = patchTranslator.translate(patch);
       const result = await workspacePatchExecutor.execute(ops);
       if (result.success)
-        vscode.window.showInformationMessage("Suggestion applied locally.");
+        vscode.window.showInformationMessage(
+          "Suggestion applied locally (server unavailable).",
+        );
     },
   );
 
