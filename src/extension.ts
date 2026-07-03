@@ -15,14 +15,18 @@ import { TelemetryService } from "./services/TelemetryService";
 import { AstContextExtractor } from "./ast/AstContextExtractor";
 process.removeAllListeners("warning");
 
-// NEW — checks if a diffPatch string is a real unified diff before attempting to render/apply it
+// checks if a diffPatch string is a real unified diff before attempting to render/apply it
 function isUnifiedDiffLike(patch: string | undefined | null): boolean {
   if (!patch) return false;
-  return patch.includes("@@") && (patch.includes("---") || patch.includes("+++"));
+  return (
+    patch.includes("@@") && (patch.includes("---") || patch.includes("+++"))
+  );
 }
 
 // NEW — serves virtual "patched file" content so vscode.diff can compare it against the real file
-class SuggestionPreviewContentProvider implements vscode.TextDocumentContentProvider {
+class SuggestionPreviewContentProvider
+  implements vscode.TextDocumentContentProvider
+{
   private content = new Map<string, string>();
   private onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
   onDidChange = this.onDidChangeEmitter.event;
@@ -301,11 +305,17 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       try {
-        const originalUri = vscode.Uri.joinPath(workspaceFolders[0].uri, filePath);
+        const originalUri = vscode.Uri.joinPath(
+          workspaceFolders[0].uri,
+          filePath,
+        );
         const originalBytes = await vscode.workspace.fs.readFile(originalUri);
         const originalContent = new TextDecoder().decode(originalBytes);
 
-        const patchedContent = applyPatch(originalContent, suggestion.diffPatch);
+        const patchedContent = applyPatch(
+          originalContent,
+          suggestion.diffPatch,
+        );
 
         if (patchedContent === false) {
           vscode.window.showWarningMessage(
@@ -323,7 +333,10 @@ export async function activate(context: vscode.ExtensionContext) {
           scheme: "codepilot-preview",
           path: originalUri.path + `.suggestion-${id}`,
         });
-        suggestionPreviewProvider.setContent(previewUri, patchedContent as string);
+        suggestionPreviewProvider.setContent(
+          previewUri,
+          patchedContent as string,
+        );
 
         await vscode.commands.executeCommand(
           "vscode.diff",
@@ -408,11 +421,15 @@ export async function activate(context: vscode.ExtensionContext) {
         ];
       }
 
-      const repoId = context.workspaceState.get<string>("codepilot_cached_repo_id");
+      const repoId = context.workspaceState.get<string>(
+        "codepilot_cached_repo_id",
+      );
 
       const token = await apiClient.getValidAccessToken();
       if (!token) {
-        vscode.window.showErrorMessage("Not authenticated to CodePilot. Please log in first.");
+        vscode.window.showErrorMessage(
+          "Not authenticated to CodePilot. Please log in first.",
+        );
         return;
       }
 
@@ -435,16 +452,22 @@ export async function activate(context: vscode.ExtensionContext) {
             const result = await apiClient.sendLocalScanPayload(repoId, files);
 
             if (result && result.issues) {
-              const backendIssues = result.issues.map((issue: any, index: number) => ({
-                id: `local_${Date.now()}_${index}`,
-                type: issue.category || "static-analysis",
-                description: issue.summary || issue.explanation || "Analysis finding",
-                severity: (issue.severity === "HIGH" || issue.severity === "CRITICAL") ? "error" : "warning",
-                startLine: issue.lineNumber || 1,
-                endLine: issue.lineNumber || 1,
-                filePath: issue.filePath || relativePath,
-                suggestedFix: issue.suggestions?.[0],
-              }));
+              const backendIssues = result.issues.map(
+                (issue: any, index: number) => ({
+                  id: `local_${Date.now()}_${index}`,
+                  type: issue.category || "static-analysis",
+                  description:
+                    issue.summary || issue.explanation || "Analysis finding",
+                  severity:
+                    issue.severity === "HIGH" || issue.severity === "CRITICAL"
+                      ? "error"
+                      : "warning",
+                  startLine: issue.lineNumber || 1,
+                  endLine: issue.lineNumber || 1,
+                  filePath: issue.filePath || relativePath,
+                  suggestedFix: issue.suggestions?.[0],
+                }),
+              );
 
               diagnosticService.applyIssuesToDocument(document, backendIssues);
 
@@ -453,10 +476,14 @@ export async function activate(context: vscode.ExtensionContext) {
                   `CodePilot local analysis completed: ${backendIssues.length} issue(s) detected.`,
                 );
               } else {
-                vscode.window.showInformationMessage("CodePilot local analysis completed: No issues found.");
+                vscode.window.showInformationMessage(
+                  "CodePilot local analysis completed: No issues found.",
+                );
               }
             } else {
-              vscode.window.showWarningMessage("CodePilot: Local scan returned no results.");
+              vscode.window.showWarningMessage(
+                "CodePilot: Local scan returned no results.",
+              );
             }
           } catch (error: any) {
             vscode.window.showErrorMessage(
