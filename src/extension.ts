@@ -61,6 +61,15 @@ export async function activate(context: vscode.ExtensionContext) {
       suggestionPreviewProvider,
     ),
   );
+  // NEW — Copilot-style inline suggestion decoration
+  const suggestionDecorationType = vscode.window.createTextEditorDecorationType({
+    after: {
+      margin: "0 0 0 1em",
+      color: new vscode.ThemeColor("editorCodeLens.foreground"),
+      fontStyle: "italic",
+    },
+  });
+  context.subscriptions.push(suggestionDecorationType);
 
   // --- Production Bootstrap Sequence ---
   const remoteUrl = RepositoryMapper.getRemoteUrlForActiveFile();
@@ -276,31 +285,86 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // UPDATED — previewSuggestionCmd now renders a real diff view when possible
-  const previewSuggestionCmd = vscode.commands.registerCommand(
-    "codepilot.previewSuggestion",
-    async (suggestionId?: string) => {
-      let id =
-        suggestionId ||
-        (await vscode.window.showInputBox({ prompt: "Enter suggestion id" }));
-      if (!id) return;
+const previewSuggestionCmd = vscode.commands.registerCommand(
+  "codepilot.previewSuggestion",
+  async (suggestionId?: string) => {
+    let id =
+      suggestionId ||
+      (await vscode.window.showInputBox({ prompt: "Enter suggestion id" }));
+    if (!id) return;
 
-      const suggestion = await apiClient.getSuggestion(id);
-      if (!suggestion) {
-        vscode.window.showErrorMessage("Could not fetch suggestion details.");
-        return;
+    const suggestion = await apiClient.getSuggestion(id);
+    if (!suggestion) {
+      vscode.window.showErrorMessage("Could not fetch suggestion details.");
+      return;
+    }
+
+    const filePath = suggestion.filePath;       // now comes from backend
+    const lineNumber = suggestion.lineNumber;    // now comes from backend
+
+   // Jump to the line in the source file, with an inline suggestion hint
+    if (filePath) {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        try {
+          const fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, filePath);
+          const doc = await vscode.workspace.openTextDocument(fileUri);
+          const editor = await vscode.window.showTextDocument(doc, { preview: false });
+
+          if (typeof lineNumber === "number" && lineNumber > 0) {
+            const line = Math.max(0, lineNumber - 1);
+            const range = new vscode.Range(line, 0, line, 0);
+            editor.selection = new vscode.Selection(range.start, range.start);
+            editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+
+            const lineLength = editor.document.lineAt(line).text.length;
+            const decorationRange = new vscode.Range(line, lineLength, line, lineLength);
+            editor.setDecorations(suggestionDecorationType, [
+              {
+                range: decorationRange,
+                renderOptions: {
+                  after: { contentText: `  💡 CodePilot: ${suggestion.summary}` },
+                },
+              },
+            ]);
+
+            const clearListener = vscode.window.onDidChangeTextEditorSelection((e) => {
+              if (e.textEditor === editor) {
+                editor.setDecorations(suggestionDecorationType, []);
+                clearListener.dispose();
+              }
+            });
+          }
+        } catch (err: any) {
+          console.warn("Could not open/navigate to suggestion file:", err.message || err);
+        }
       }
+    }
 
-      const filePath = suggestion.filePath ?? suggestion.issue?.filePath;
+    // Existing diff-preview logic continues below
+    if (!isUnifiedDiffLike(suggestion.diffPatch) || !filePath) {
+      const doc = await vscode.workspace.openTextDocument({
+        content: JSON.stringify(suggestion, null, 2),
+        language: "json",
+      });
+      await vscode.window.showTextDocument(doc, {
+        preview: true,
+        viewColumn: vscode.ViewColumn.Beside,
+      });
+      return;
+    }
 
-      // Fallback: no valid diff or no known file path — show raw details instead
-      if (!isUnifiedDiffLike(suggestion.diffPatch) || !filePath) {
-        const doc = await vscode.workspace.openTextDocument({
-          content: JSON.stringify(suggestion, null, 2),
-          language: "json",
-        });
-        await vscode.window.showTextDocument(doc, { preview: true });
-        return;
-      }
+    // Existing diff-preview logic continues below, unchanged
+    if (!isUnifiedDiffLike(suggestion.diffPatch) || !filePath) {
+      const doc = await vscode.workspace.openTextDocument({
+        content: JSON.stringify(suggestion, null, 2),
+        language: "json",
+      });
+      await vscode.window.showTextDocument(doc, { preview: true });
+      return;
+    }
+
+    // ... rest unchanged (diff view via vscode.diff)
 
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) {
