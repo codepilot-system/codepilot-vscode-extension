@@ -253,17 +253,18 @@ export async function activate(context: vscode.ExtensionContext) {
         placeHolder: "Select a suggestion to preview",
       });
       if (!pick) return;
+const action = await vscode.window.showQuickPick(["Preview", "Apply", "Dismiss"], {
+  placeHolder: "Action?",
+});
+if (!action) return;
 
-      const action = await vscode.window.showQuickPick(["Preview", "Apply"], {
-        placeHolder: "Action?",
-      });
-      if (!action) return;
-
-      if (action === "Preview") {
-        vscode.commands.executeCommand("codepilot.previewSuggestion", pick.id);
-      } else {
-        vscode.commands.executeCommand("codepilot.applySuggestion", pick.id);
-      }
+if (action === "Preview") {
+  vscode.commands.executeCommand("codepilot.previewSuggestion", pick.id);
+} else if (action === "Apply") {
+  vscode.commands.executeCommand("codepilot.applySuggestion", pick.id);
+} else {
+  vscode.commands.executeCommand("codepilot.dismissSuggestion", pick.id);
+}
     },
   );
 
@@ -467,11 +468,30 @@ export async function activate(context: vscode.ExtensionContext) {
       );
     },
   );
+  const dismissSuggestionCmd = vscode.commands.registerCommand(
+  "codepilot.dismissSuggestion",
+  async (suggestionId?: string) => {
+    let id =
+      suggestionId ||
+      (await vscode.window.showInputBox({ prompt: "Enter suggestion id" }));
+    if (!id) return;
+
+    const result = await apiClient.dismissSuggestion(id);
+    if (result) {
+      vscode.window.showInformationMessage(
+        `Suggestion dismissed (status: ${result.status}).`,
+      );
+    } else {
+      vscode.window.showErrorMessage("Failed to dismiss suggestion.");
+    }
+  },
+);
 
   context.subscriptions.push(
     applyPatchCmd,
     validatePatchCmd,
     showSuggestionsCmd,
+    dismissSuggestionCmd,
     previewSuggestionCmd,
     applySuggestionCmd,
     triggerLocalScanCmd,

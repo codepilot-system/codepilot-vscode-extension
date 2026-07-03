@@ -33,6 +33,10 @@
       {
         "command": "codepilot.validatePatch",
         "title": "CodePilot: Validate Patch"
+      },
+       {
+        "command": "codepilot.dismissSuggestion",
+        "title": "CodePilot: Dismiss Suggestion"
       }
     ]
   },
