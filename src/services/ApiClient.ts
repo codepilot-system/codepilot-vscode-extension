@@ -156,7 +156,10 @@ public async registerOrMapRepo(
   remoteUrl: string,
 ): Promise<MapRepoResponse | null> {
   const parsed = this.parseGitRemoteUrl(remoteUrl);
-  if (!parsed) return null;
+  if (!parsed) {
+    console.warn("Could not parse owner/repo from remote URL:", remoteUrl);
+    return null;
+  }
 
   try {
     const response = await this.client.post<any>("/projects", {
@@ -169,8 +172,10 @@ public async registerOrMapRepo(
       repositoryId: String(project.id),
       name: project.name,
     };
-  } catch (err) {
-    vscode.window.showErrorMessage("CodePilot Gateway communication breakdown.");
+  } catch (err: any) {
+    const message =
+      err.response?.data?.message || "CodePilot Gateway communication breakdown.";
+    vscode.window.showErrorMessage(`CodePilot: ${message}`);
     return null;
   }
 }
@@ -178,10 +183,6 @@ public async registerOrMapRepo(
 private parseGitRemoteUrl(
   remoteUrl: string,
 ): { owner: string; repoName: string } | null {
-  // Handles:
-  //  https://github.com/owner/repo.git
-  //  https://github.com/owner/repo
-  //  git@github.com:owner/repo.git
   const httpsMatch = remoteUrl.match(
     /github\.com[/:]([^/]+)\/([^/.]+?)(\.git)?$/,
   );
@@ -237,7 +238,8 @@ private parseGitRemoteUrl(
     }
   }
   public async getSuggestions(projectId?: string): Promise<any[] | null> {
-    try {
+  console.trace("getSuggestions called with projectId:", projectId);
+  try {
       const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
       const response = await this.client.get(`/suggestions${qs}`);
       return response.data?.data || response.data;
