@@ -297,4 +297,16 @@ private parseGitRemoteUrl(
       return null;
     }
   }
+  public async dismissSuggestion(id: string): Promise<any | null> {
+  try {
+    const response = await this.client.post(
+      `/suggestions/${encodeURIComponent(id)}/dismiss`,
+    );
+    return response.data?.data || response.data;
+  } catch (err) {
+    console.warn("Failed to dismiss suggestion", err);
+    return null;
+  }
 }
+  }
+

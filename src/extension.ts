@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as crypto from "crypto";
-import { applyPatch } from "diff"; // NEW — needed to compute "after" content for diff preview
+import { applyPatch } from "diff"; //  needed to compute "after" content for diff preview
 import { ApiClient } from "./services/ApiClient";
 import { WebSocketClient } from "./services/WebSocketClient";
 import { RepositoryMapper } from "./services/RepositoryMapper";
@@ -15,7 +15,7 @@ import { TelemetryService } from "./services/TelemetryService";
 import { AstContextExtractor } from "./ast/AstContextExtractor";
 process.removeAllListeners("warning");
 
-// checks if a diffPatch string is a real unified diff before attempting to render/apply it
+// NEW — checks if a diffPatch string is a real unified diff before attempting to render/apply it
 function isUnifiedDiffLike(patch: string | undefined | null): boolean {
   if (!patch) return false;
   return (
@@ -257,16 +257,20 @@ export async function activate(context: vscode.ExtensionContext) {
         placeHolder: "Select a suggestion to preview",
       });
       if (!pick) return;
-
-      const action = await vscode.window.showQuickPick(["Preview", "Apply"], {
-        placeHolder: "Action?",
-      });
+      const action = await vscode.window.showQuickPick(
+        ["Preview", "Apply", "Dismiss"],
+        {
+          placeHolder: "Action?",
+        },
+      );
       if (!action) return;
 
       if (action === "Preview") {
         vscode.commands.executeCommand("codepilot.previewSuggestion", pick.id);
-      } else {
+      } else if (action === "Apply") {
         vscode.commands.executeCommand("codepilot.applySuggestion", pick.id);
+      } else {
+        vscode.commands.executeCommand("codepilot.dismissSuggestion", pick.id);
       }
     },
   );
@@ -494,11 +498,30 @@ export async function activate(context: vscode.ExtensionContext) {
       );
     },
   );
+  const dismissSuggestionCmd = vscode.commands.registerCommand(
+    "codepilot.dismissSuggestion",
+    async (suggestionId?: string) => {
+      let id =
+        suggestionId ||
+        (await vscode.window.showInputBox({ prompt: "Enter suggestion id" }));
+      if (!id) return;
+
+      const result = await apiClient.dismissSuggestion(id);
+      if (result) {
+        vscode.window.showInformationMessage(
+          `Suggestion dismissed (status: ${result.status}).`,
+        );
+      } else {
+        vscode.window.showErrorMessage("Failed to dismiss suggestion.");
+      }
+    },
+  );
 
   context.subscriptions.push(
     applyPatchCmd,
     validatePatchCmd,
     showSuggestionsCmd,
+    dismissSuggestionCmd,
     previewSuggestionCmd,
     applySuggestionCmd,
     triggerLocalScanCmd,
